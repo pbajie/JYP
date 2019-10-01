@@ -1,1 +1,170 @@
+import java.io.*;  
+import java.net.*;
+import java.nio.file.*;
+import java.util.*;
 
+class LWorker extends Thread {    
+	  Socket sock1;                  
+	  LWorker (Socket y) {sock1 = y;} 
+	                                     
+	  public void run(){
+	   
+	    PrintStream outS = null;
+	    BufferedReader inS = null;
+	    try {
+	      outS = new PrintStream(sock1.getOutputStream());
+	      inS = new BufferedReader (new InputStreamReader(sock1.getInputStream()));
+	      try {
+	          String requestB;
+	          requestB = inS.readLine ();// get request from browser 
+	          String type;
+	         
+	          if (requestB != null) {
+	        	  System.out.println(requestB);//test request 
+	              if(requestB.contains("GET")) {
+	            	  String[] info=requestB.split("\\s+");
+	            	  requestB=info[1];//get path name
+	            	  
+	              }
+	              if (requestB.endsWith(".html")||requestB.endsWith(".htm")) {//path name end up with html
+	            	  type="text/html";
+	            	  sendBack(type,requestB,outS);
+	              }
+	              if (requestB.endsWith(".txt")||requestB.endsWith(".java")) {//path name end up with txt
+	            	  type="text/plain";
+	            	  sendBack(type,requestB,outS);
+	              }
+	              else {
+	                  type="text/plain";
+	            	  sendBack(type,requestB,outS);
+	              }
+	      	    	 
+	          } 	             	          
+	      }catch (IOException x) {
+		      System.out.println("server error");
+		      x.printStackTrace();
+	      }
+	      sock1.close(); // close client connection 
+	    } catch (IOException ioe) {
+	      System.out.println(ioe);
+	    }
+	  }
+	 
+	    private void sendBack(String type,String requestB,PrintStream outS){
+	    	String state="200 OK";
+	    	String responseB="";	//initialize server's response 
+	    	String path="."+requestB;// get the target 
+	    	File file=new File(path); //create file 
+	   
+	    
+	    	if(!path.contains("cgi/addnums.fake-cgi")) { // not addnums
+	    	   if(file.exists()) {//check whether file exists
+	    		        if(file.isDirectory()) {//check whether is directory or not 
+	    			      System.out.println("Is a directory:"+file.isDirectory()); //check diectory
+	    			      responseB=DirList(file);  
+	            	      type="text/html";
+	    		        }
+	          
+	    		        else { //path is file
+	    			      try { 
+	    			       responseB=new String(Files.readAllBytes(Paths.get(path)));//read file's content
+	    			       }catch(IOException ioe) {
+	    				      System.out.print(ioe);
+	    			        }
+	    		       }
+	    	      }else {//if path not exist 
+	    	        state=" 404 NOT FOUND";
+	    		    responseB="error"; 
+	    	   }
+	    	}else {
+	    		type="text/html";//assign html to path which contain addnums.fake-cgi
+	    		responseB=addSum(path,responseB);
+	    		
+	    	}
+	    	
+	    	outS.println("HTTP/1.1" + state);
+	    	outS.println("Content-Type:"+ type);
+	    	outS.print("Content-Length:"+responseB.length());
+	    	outS.print("\r\n\r\n");//send header
+	    	outS.print(responseB);//send content
+	    	if (path.endsWith("html")||requestB.endsWith("txt")) {//use for serverlog.txt
+	    	check(state,type,responseB);
+	    	}
+	    }
+
+
+        private String DirList(File f) {
+        	String dir="<pre>";//format of website 
+        	dir+="<h1>\n J's webserver</h1>\n";
+        	dir+="<pre> <a href=\"?C=N;O=D\">Name</a>                    <a href=\"?C=M;O=A\">Last modified</a>      <a href=\"?C=S;O=A\">Size</a>  <a href=\"?C=D;O=A\">Description</a><hr><img src=\"/icons/back.gif\" alt=\"[DIR]\"> <a href="+f.getParent()+">Parent Directory</a>\n";     
+        	String fName;
+	        for(File file:f.listFiles()) {
+	        	fName=file.getName();
+	        	System.out.println(fName);//check all file's name 
+	        	if(file.isDirectory()) {
+	        		fName+="/";
+	        		dir+="<img src=\"/icons/folder.gif\" alt=\"[DIR]\"> <a href=\"./"+fName+"\">"+fName+"</a>\n";//dir format
+	        	}
+	        	else if(file.isFile()) {
+	        	    dir+="<img src=\"/icons/text.gif\" alt=\"[TXT]\"> <a href=\"./" + fName + "\">" + fName + "</a>\n";//file format
+	        	}
+	        	
+	        }
+	        dir+="</pre>";
+	        return dir;//return html format
+	        	
+	   }
+        
+	    private String addSum(String path,String response) {//return response to path which contain addnums.fake-cgi
+	    	
+			URL url;
+			try {
+				url = new URL("http://local.com"+path);//get url and try to find variable of person,num1,num2
+				Map<String, String> parameters = new HashMap<>();//create a map to put parameters inside 
+			    String[] con=url.getQuery().split("&"); //split query part with "&"
+			    for(String vars:con) {
+				String[] value=vars.split("=");//separate with"="
+				String getName=value[0];
+				String val=value[1];
+				parameters.put(getName, val);
+			}
+			int sum=Integer.parseInt(parameters.get("num1"))+Integer.parseInt(parameters.get("num2"));
+	 
+			response=String.format("<html><p> %s, the sum of %s and %s is %d.</p></html>",parameters.get("person"),parameters.get("num1"),parameters.get("num2"),sum);
+			
+	        } catch (MalformedURLException e) {
+	          e.printStackTrace();
+	        }
+	     
+			return response;
+	    }
+	   private void check(String state,String type,String responseB) {
+		   System.out.println("------------------------------");//test result
+	    	System.out.println("HTTP/1.1" + state);
+	    	System.out.println("Content-Type:"+ type);
+	    	System.out.println("Content-Length:"+responseB.length());
+	    	//System.out.println(responseB);
+	   }
+	  }
+	  
+public class MyWebServer {
+
+	  public static boolean controlSwitch = true;
+
+	  public static void main(String a[]) throws IOException {
+	    int q_len = 6; 
+	    int port = 2540;
+	    Socket sock;
+      
+	    ServerSocket servsockect = new ServerSocket(port, q_len);// server socket
+
+	    System.out.println("J's Port listener running at 2540.\n");
+	    while (controlSwitch) {
+	    
+	      sock = servsockect.accept();//wait 
+	      new LWorker (sock).start(); 
+	     
+	    }
+	  }
+	  
+}
