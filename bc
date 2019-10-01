@@ -1,0 +1,280 @@
+import java.io.*;
+import java.net.*;
+import java.util.*;
+public class McastDHT {//major class
+	  public static  int ID;
+
+	  public static void send(String msg, int port){
+	      DatagramSocket socket;
+	      InetAddress address;
+	      byte[] buffer;
+
+	      try{
+	          socket = new DatagramSocket();
+	          address = InetAddress.getByName("localhost");
+	          buffer = msg.getBytes();
+	          DatagramPacket packet = new DatagramPacket(buffer, buffer.length, address, port);
+	          socket.send(packet);
+	      }catch(Exception ex){ex.printStackTrace();}
+	  }
+
+	  public static void main(String[] args) {
+	     
+	      // connect to port 40001
+	      DatagramSocket socket;
+	      DatagramPacket packet;
+	      InetAddress address;
+	      byte[] buffer;
+	    
+
+	      try {
+	          //set socket, address, and UDP message
+	          socket = new DatagramSocket();
+	          address = InetAddress.getByName("localhost");
+	          buffer = "test".getBytes();// not sure can use it 
+        	 
+        	
+        	  packet = new DatagramPacket(buffer, buffer.length, address, 40001);	//send message to port 40001
+	          socket.send(packet);
+	          
+  
+	          //listen for response
+	          while(true){
+	        	  packet = new DatagramPacket(buffer, buffer.length);
+	          try{
+	              socket.receive(packet);
+	          }catch(SocketTimeoutException ex){
+	              ex.printStackTrace();
+	          }
+	          socket.close();
+	          break;
+	          }
+	      }
+	      }catch(Exception ex){ ex.printStackTrace(); }
+          
+	  }
+   }   
+       
+	 
+
+
+class MWorker extends Thread{// in order to solve informations
+	  String info;
+	  MWorker(String message){
+	      info = message;
+	  }
+	  public void run(){
+	      
+	      if(info.indexOf("create")>=0){//create
+	    	  int MID1 = Integer.parseInt(info.trim().split("\\s+")[1]); 
+		      System.out.println("add into group " + MID1 + "\n");
+		      Record.add(MID1, false);
+		      
+		      if(info.indexOf( " " + Integer.toString(McastDHT.ID)+"mcast")<0){
+		    	  McastDHT.send(info, Node.successor+40000);}//send meesage to server
+	     
+	      else if(info.indexOf("send")>=0){//send
+	    	  String[] info1 = info.trim().split("\\s+");//split message
+		      int MID2 = Integer.parseInt(info1[1]);//first position is ID
+		      if(Record.checkMembership(MID2)){
+		          String recordlist = info.replaceAll(info1[0], "");
+		          recordlist = recordlist.replaceAll(info1[1], "").trim();
+		          
+		      }
+		     
+		      if(info.indexOf(" " + McastDHT.ID + "mcast")>=0){//if already exist
+		    	  McastDHT.send(info, Node.successor+40000);//send to server
+		      }
+	    	  }
+	      else if(info.indexOf("add")>=0){//add
+	    	  int MID3 = Integer.parseInt(info.split("\\s+")[1]);
+		      System.out.println("Joining group " + MID3 + "\n");
+		   
+		      Record.add(MID3, true);
+	      }
+	      }
+	  }  
+	 
+}
+
+class Record{//record info (memebership)
+  private static HashMap<Integer, Boolean> record;
+  Record(){
+      record= new HashMap<>();
+  }
+  
+  public static boolean checkMembership(int MID){//check whether is membership
+      if(record.containsKey(MID)){
+          return record.get(MID);
+      }else {
+    	  return false;}
+  }
+ 
+  public static void add(int MID, boolean membership){//change 
+      if(!record.containsKey(MID)){//key is ID
+          record.put(MID, membership); 
+      }
+ }
+}
+ 
+
+class Node extends Thread{
+  static int predecessor;
+  static int successor;
+
+  Node(int p, int s){
+      predecessor = p;
+      successor = s;
+  }
+
+  public void run(){
+	  infomations();
+      new Manager().start(); //start input from client
+      DatagramPacket packet;
+      DatagramSocket socket;
+      byte[] buffer;
+      try{
+          socket = new DatagramSocket(40000+McastDHT.ID);//create socket
+          while(true){
+              buffer = new byte[256];
+              packet = new DatagramPacket(buffer,buffer.length);
+              socket.receive(packet);
+              String msg = new String(packet.getData(), 0, packet.getLength());
+
+            
+              if(msg.indexOf("ping")>=0){ping(msg);}
+              else if(msg.indexOf("survey")>=0){survey(msg);}
+              else if(msg.indexOf("mcast")>=0){new MWorker(msg).start();}
+            
+          }
+      }catch(Exception ex){ex.printStackTrace();}
+  }
+  public void survey(String msg){
+      if(msg.contains(" " + Integer.toString(McastDHT.ID) + " ")){
+          System.out.println("Nodes are: ");
+          msg = msg.replaceAll("survey ", "");//in order to split 
+          for(String a: msg.split("\\s+")){
+              System.out.println(a);
+          }
+        
+      }else{
+          msg = msg + " " + McastDHT.ID + " ";
+          McastDHT.send(msg, Node.successor + 40000);
+      }
+  }
+
+  public void ping(String msg){
+      String[] info = msg.split("\\s+");
+      String response;
+      int port;
+     
+      if(msg.indexOf("loop")>=0){//has loop pin
+          System.out.println("LoopPing: " + info[info.length-1] + "\n");
+          response = msg;
+          port = Node.successor + 40000;//server port
+          if(Integer.parseInt(info[0])==McastDHT.ID){
+              return;
+          }
+      }else{
+          port = Integer.parseInt(msg.split("\\s+")[1])+40000;
+          System.out.println("Ping from " + (port-40000) + "\n");
+          if(msg.indexOf("response")>=0){
+             return;
+          }
+          response = "ping response " + McastDHT.ID;
+      }
+      //send message to socket
+      DatagramPacket packet;
+   
+      DatagramSocket socket;
+      InetAddress addr;
+      byte[] buffer;
+      try {
+           socket = new DatagramSocket();
+           addr = InetAddress.getByName("localhost");
+           buffer = response.getBytes();
+           packet = new DatagramPacket(buffer, buffer.length, addr, port);
+           socket.send(packet);
+      } catch (Exception ex) {
+              ex.printStackTrace();
+      }
+  }
+  public static void infomations(){
+      System.out.printf("ID: %d predecessor: %d successor: %d\n\n", McastDHT.ID, predecessor, successor);
+  }
+
+  
+  
+
+ 
+
+}
+
+class Client extends Thread{
+  String request;
+  Client(String input){
+      request = input;
+  }
+  public void run(){
+	  String msg;
+      int port;
+      if(request.indexOf("ping")>=0){//send ping
+    	  if(request.indexOf("loop")>=0){
+              msg = McastDHT.ID + " " + request;
+              port = Node.successor + 40000;
+          }else{
+              msg = "ping " + McastDHT.ID;
+              port = Integer.parseInt(request.split("\\s+")[1]);
+          }
+    	  McastDHT.send(msg, port);
+      }else if(request.indexOf("survey")>=0){//add node ID
+    	  msg = "survey " + McastDHT.ID + " ";
+          port = Node.successor + 40000;
+          McastDHT.send(msg, port);
+      }else if(request.indexOf("mcast")>=0){//solve the various mcast- requests
+    	  String[] splitMsg = request.trim().split("\\s++");
+          String mID = splitMsg[2];
+          if(request.indexOf("create")>=0){
+              String info = " " + McastDHT.ID + "mcastcreate " + mID;
+              McastDHT.send(info, Node.successor+40000);
+          }else if(request.indexOf("add")>=0){
+              port = Integer.parseInt(splitMsg[3])+40000;
+              String info = "mcastadd " + mID;
+              McastDHT.send(info, port);
+          }else if(request.indexOf("send")>=0){
+              String info = " " + McastDHT.ID + "mcastsend" + request.replaceAll("mcast send", "");
+              McastDHT.send(info, Node.successor+40000);
+          }
+          else if(request.indexOf("status")>=0){
+              Node.infomations();}
+          
+      }
+  }
+
+}  
+
+class Manager extends Thread{
+	  public void run(){
+	      BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
+	      try{
+	    	
+	          System.out.println("\"Status%\" --Display NodeID, Predecessor NodeID, and Successor NodeID.");
+	          System.out.println("\"Ping [ComPort]%\" -- Send Ping to this this ComPort.");
+	          System.out.println("\"LoopPing%\" -- Forward ping around DHT.");
+	          System.out.println("\"Survey%\" -- display list of all DHT Nodes.");
+	          System.out.println("\"Mcast Create [McastID]%\" -- Create Mcast group with this ID.");
+	          System.out.println("\"Mcast Add [McastID] [NodeID]%\" -- Add this DHT node to multicast group.");
+	          System.out.println("\"Mcast Send [McastID] message%\" -- Send message to Mcast group.\n");
+	          String input;
+
+	          //read and process line of input
+	          while(true){
+	              input = in.readLine();
+	              input = input.toLowerCase();
+	              new Client(input).start();
+	          }
+
+	      }catch (IOException ex){ex.printStackTrace();}
+	  }
+	  
+	}
